@@ -19,40 +19,15 @@
 | v0.8.x | Service Deployment Basics / API key auth / video_format rename / render templates / exception narrowing / lint toolchain / queue deadlock fix |
 | v0.9.x | Reliability / Batch / Docs / circuit breaker / checkpoints / graceful shutdown / retry policy / batch jobs / cron / DLQ / distributed rendering / sanitization / SAST / coverage gate / integration tests / i18n / voice map / tutorial / ADR / migration guide |
 | v1.0.x | **Stable Release** / API freeze / stability guarantees / release checklist / final documentation pass / long-term support policy |
+| v1.1.x | FunASR Chinese ASR / `mn doctor` / QA slideshow & black-frame detection / EmotionTrack / SQLite task store / visual-embedding match skeleton / timeline_export plugin / compliance (edge-tts + TMDB) / 90% coverage gate |
 
-`CONTRACT_VERSION` (current): `(1, 0, 0)`
+`CONTRACT_VERSION` (current): `(1, 0, 0)` (unchanged in v1.1 — no new contract exports)
 
 ---
 
 ## Current & Planned
 
 > **Planning principle**: Alternate user-visible improvements with infrastructure work. v1.0 target users: local CLI creators + optional single-tenant service deployment.
-
-### v1.0.0 — Stable Release
-
-> **Goal**: API stability guarantee, production-ready, feature-complete for target use cases.
-> **Status**: Release Candidate phase — see [Release Checklist](RELEASE_CHECKLIST.md).
-
-- [x] **CONTRACT_VERSION freeze** → `(1, 0, 0)` — API surface declared stable
-- [x] **API stability guarantee** — no breaking changes in v1.x without v2.0; documented in [STABILITY.md](STABILITY.md)
-- [x] **Final documentation pass** — all docs reviewed and up-to-date
-- [ ] **Release announcement** — changelog, migration guide, blog post
-- [x] **Long-term support policy** — v1.x maintenance branch and backport rules (see [STABILITY.md](STABILITY.md#upgrade-guarantees))
-- [x] **Release checklist** — Definition of Done for v1.0 published
-
----
-
-### v1.1.0 — Community & Polish (planning)
-
-> **Goal**: Community-driven improvements, plugin ecosystem growth, quality-of-life features.
-
-- [ ] Community preset sharing mechanism
-- [ ] Plugin marketplace / index
-- [ ] Enhanced error messages and diagnostics
-- [ ] Performance optimizations (incremental render cache)
-- [ ] Additional language support for narration
-
----
 
 ### Post-v1.0 — Community Ecosystem (demand-driven)
 

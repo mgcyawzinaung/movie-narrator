@@ -16,7 +16,7 @@ pip install movie-narrator
 
 ```bash
 mn version
-# movie-narrator 1.0.0 (contract 1.0.0)
+# movie-narrator 1.1.0 (contract 1.0.0)
 ```
 
 ## 步骤 1：创建插件包
@@ -48,7 +48,7 @@ dependencies = ["movie-narrator>=0.6.0"]
 where = ["."]
 ```
 
-`[project.entry-points]` 部分为自动发现注册你的插件。权威的 TOML 片段 — 包括 `[project.entry-points."movie_narrator.plugins"]` 块 — 定义在[插件开发指南](PLUGIN_DEVELOPMENT.zh-CN.md#entry-points)，此处链接过去而非重复。
+`[project.entry-points]` 部分为自动发现注册你的插件。权威的 TOML 片段 — 包括 `[project.entry-points."movie_narrator.plugins"]` 块 — 定义在[插件开发指南](PLUGIN_DEVELOPMENT.zh-CN.md#入口点-entry-points)，此处链接过去而非重复。
 
 ### `my_plugin/__init__.py`
 
