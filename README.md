@@ -79,7 +79,7 @@ pip install movie-narrator-web
 pip install "movie-narrator[full]"
 ```
 
-> **Note on Python 3.14+**: The `[ml]` extra is limited to Python < 3.14 (upstream PyTorch dependency constraint); on 3.14+ it is silently skipped and the align/match steps automatically soft-degrade (see [Soft steps](#pipeline)).
+> **Note on Python 3.14+**: The `[ml]` extra is limited to Python < 3.14 — PyTorch itself is now 3.14-ready (2.10+), but downstream ML dependencies (WhisperX, FunASR) have not yet shipped Python 3.14 wheels; on 3.14+ it is silently skipped and the align/match steps automatically soft-degrade (see [Soft steps](#pipeline)).
 
 For development:
 

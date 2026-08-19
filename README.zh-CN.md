@@ -79,7 +79,7 @@ pip install movie-narrator-web
 pip install "movie-narrator[full]"
 ```
 
-> **Python 3.14+ 注意**：`[ml]` 扩展仅支持 Python < 3.14（上游 PyTorch 依赖限制）；3.14+ 上会静默跳过，对齐/匹配步骤自动降级（见[软步骤](#流水线)）。
+> **Python 3.14+ 注意**：`[ml]` 扩展仅支持 Python < 3.14 —— PyTorch 本身已支持 3.14（2.10+），但下游 ML 依赖（WhisperX、FunASR）尚未发布 Python 3.14 wheel；3.14+ 上会静默跳过，对齐/匹配步骤自动降级（见[软步骤](#流水线)）。
 
 开发模式安装：
 
