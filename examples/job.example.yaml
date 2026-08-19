@@ -77,7 +77,7 @@ narration_preset: ""        # douyin-fast | mainstream-dry | bilibili-long
 #          match_visual_features
 #   视觉: vision_captioner
 #   BGM:  bgm_gain_db / bgm_duck_db / bgm_normalize / audio_target_dbfs
-#          bgm_loudnorm / bgm_metadata_path
+#          bgm_loudnorm / bgm_metadata_path / bgm_ducking_backend
 #          bgm_ambient_path (v0.7.1+) / bgm_ambient_gain_db (v0.7.1+)
 #   TTS:  tts_pause_ms / tts_max_concurrent / tts_audio_format / tts_audio_bitrate
 #   翻译: translate_source_lang / translate_provider / translate_retries
@@ -86,13 +86,16 @@ narration_preset: ""        # douyin-fast | mainstream-dry | bilibili-long
 #   对齐: whisperx_device / whisperx_model / whisperx_language / align_backend
 #   渲染: render_fps / render_video_codec / render_audio_codec / render_threads
 #          render_bg_color / render_font_size / render_output_name / render_ffmpeg_timeout
+#          render_main_encode_timeout (v1.2+)
 #          render_fit_mode / render_crf / render_preset / render_faststart
 #          render_subtitle_position / render_subtitle_max_width_ratio
 #          render_subtitle_bottom_margin_ratio
 #          render_require_footage / render_min_footage_coverage / render_profile
 #          render_title_card_sec / render_cover_export / render_vertical_safe_area
 #          render_encoder (v0.7.0+) / render_transition (v0.7.1+)
-#          render_text_animation (v0.7.1+) / render_preview_mode (v0.7.2+)
+#          render_transition_duration (v0.7.1+)
+#          render_text_animation (v0.7.1+) / render_text_animation_duration (v0.7.1+)
+#          render_preview_mode (v0.7.2+) / render_preview_sec (v0.7.2+)
 #          render_template
 #   质检: qa_enabled / qa_max_silence_db / qa_min_duration_ratio / qa_max_duration_ratio
 #          qa_max_slideshow_risk / qa_max_black_ratio
@@ -168,6 +171,7 @@ params:
   # render_font_size: 100     # 文字叠加字体大小
   # render_output_name: final.mp4  # 最终视频文件名
   # render_ffmpeg_timeout: 300  # export_clips ffmpeg 超时（秒）
+  # render_main_encode_timeout: 1800  # v1.2+: MoviePy 主编码兜底超时（秒），超时终止 ffmpeg 并快速失败
   # ---- 渲染生产质量（v0.4.13 起的默认值，按需覆盖）----
   # render_fit_mode: cover        # cover = 裁剪填充画布 | contain = 信箱模式
   # render_crf: 18                # 质量（越小越高，18≈视觉无损）

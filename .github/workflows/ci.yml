@@ -68,8 +68,17 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          # GitHub-hosted runners intermittently stall on the Ubuntu mirrors
+          # (stalled connections that Acquire::http::Timeout does not bound),
+          # so wrap the whole update in `timeout` and retry before giving up.
+          for i in 1 2 3; do
+            if timeout 180 sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::Retries=3; then
+              break
+            fi
+            echo "apt-get update attempt $i failed/timed out, retrying..."
+            sleep 5
+          done
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
 
       - run: pip install -e ".[dev]"
       - name: Run unit tests
@@ -173,8 +182,17 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          # GitHub-hosted runners intermittently stall on the Ubuntu mirrors
+          # (stalled connections that Acquire::http::Timeout does not bound),
+          # so wrap the whole update in `timeout` and retry before giving up.
+          for i in 1 2 3; do
+            if timeout 180 sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::Retries=3; then
+              break
+            fi
+            echo "apt-get update attempt $i failed/timed out, retrying..."
+            sleep 5
+          done
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
 
       - name: Install with media extras
         run: pip install -e ".[media,dev]"
@@ -255,8 +273,17 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          # GitHub-hosted runners intermittently stall on the Ubuntu mirrors
+          # (stalled connections that Acquire::http::Timeout does not bound),
+          # so wrap the whole update in `timeout` and retry before giving up.
+          for i in 1 2 3; do
+            if timeout 180 sudo apt-get update -o Acquire::ForceIPv4=true -o Acquire::Retries=3; then
+              break
+            fi
+            echo "apt-get update attempt $i failed/timed out, retrying..."
+            sleep 5
+          done
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
 
       - run: pip install -e ".[media,dev]"
       - name: Run integration tests

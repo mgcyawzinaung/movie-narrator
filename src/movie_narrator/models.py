@@ -155,6 +155,7 @@ class MetadataDict(TypedDict, total=False):
     tts_audio_bitrate: str
     tts_max_concurrent: int
     tts_pause_ms: int
+    tts_cache_stats: dict
     # Match step
     wp6_intro_dropped: int
     wp6_dark_dropped: int
@@ -230,6 +231,7 @@ class MetadataDict(TypedDict, total=False):
     duration: float
     scene_detection_degraded: bool
     pause_at: str
+    dry_run: bool
     distributed_render: bool
     # Internal: degraded step tracking (list of step names)
     _degraded_steps: list
