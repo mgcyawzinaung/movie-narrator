@@ -32,7 +32,7 @@
 | v1.5.1 | Community & governance — mn presets sharing / per-tenant rate limiting / provider usage ledger |
 | v1.5.2 | Deployment & media cache — Helm chart & K8s templates / media cache pool with reference_media URLs / pilot deferral record |
 
-`CONTRACT_VERSION` (current): `(1, 3, 0)` (bumped in v1.4.0 — tracing exports; unchanged in v1.4.1)
+`CONTRACT_VERSION` (current): `(1, 3, 0)` (bumped in v1.4.0 — tracing exports; unchanged in v1.4.1–v1.5.2)
 
 ---
 
@@ -79,12 +79,12 @@
 
 #### v1.4.1 — Output Experience **(shipped)**
 
-- Subtitle delivery `burned | sidecar | muxed` — muxed embeds a `mov_text` soft track with ISO-639-2 language normalization; graceful burned fallback with a recorded reason. (ADR-015 planned)
+- Subtitle delivery `burned | sidecar | muxed` — muxed embeds a `mov_text` soft track with ISO-639-2 language normalization; graceful burned fallback with a recorded reason. (ADR-015)
 - Output format stability promise — `deliverable_manifest.json` schema v1 + the default deliverable set compatibility-protected across 1.x (STABILITY.md).
 
 #### v1.4.2 — Ecosystem **(shipped)**
 
-- Premiere timeline adapter — FCP7-XML (`xmeml`) export in the timeline_export plugin; `timeline_export_backend=premiere`. (ADR-016 planned)
+- Premiere timeline adapter — FCP7-XML (`xmeml`) export in the timeline_export plugin; `timeline_export_backend=premiere`. (ADR-016)
 - CLI ergonomics — `mn benchmark` and `mn rerun --dry-run`.
 
 
@@ -99,12 +99,12 @@
 
 #### v1.5.1 — Community & Governance **(shipped)**
 
-- Community preset sharing — `mn presets install/list/show/remove`; data-only YAML validated against the job-param whitelist, no code execution. (ADR-018 planned)
+- Community preset sharing — `mn presets install/list/show/remove`; data-only YAML validated against the job-param whitelist, no code execution. (ADR-018)
 - Per-tenant token-bucket rate limiting (opt-in) and a provider usage ledger (makes the deferred idempotency-key decision measurable).
 
 #### v1.5.2 — Deployment & Media Cache **(shipped)**
 
-- Helm chart / K8s deployment templates; media cache pool with `reference_media` URL support and licence metadata; Temporal/Celery pilot decision recorded with measurable triggers. (ADR-019 planned)
+- Helm chart / K8s deployment templates; media cache pool with `reference_media` URL support and licence metadata; Temporal/Celery pilot decision recorded with measurable triggers. (ADR-019)
 
 ### Long-term — Architecture Outgrowths (demand-driven)
 

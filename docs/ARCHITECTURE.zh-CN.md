@@ -42,6 +42,16 @@
 - **pipeline**（`pipeline/runner.py`）—— 16 步串行编排器；持有 `STEPS`、`build_context`、`run_pipeline`
 - **pipeline/dag.py** —— 线性兼容的 DAG 契约：步骤 I/O + 依赖声明、劝告性验证与拓扑排序；运行器保持串行（v1.3.0）
 - **pipeline/deliverable.py** —— 版本化交付物清单（`deliverable_manifest.json`），流式 SHA-256 校验（v1.3.0）
+- **tracing**（`tracing.py`）—— 可选 OpenTelemetry span 工厂（`任务 → 步骤/Provider/子进程`）；未设置 `MN_TRACING` 或未安装 `[otel]` 附加依赖时为零开销 no-op；外部预注册导出器原样使用（v1.4.0）
+- **utils/resources.py** —— 渲染准入预检：临时空间估算（帧面积 × 时长 × 位深）；可选 `MN_ADMISSION_DISK_CHECK`（v1.3.2）
+- **utils/prompt_cache.py** —— 可选的原始 LLM 响应缓存（research/beats/expand），按规范化输入为键；TTL + LRU（v1.3.2）
+- **utils/media_cache.py** —— 内容寻址媒体缓存，为 `reference_media` URL 项携带版权元数据（v1.5.2）
+- **utils/cost_ledger.py** —— 逐任务 Provider 用量计数（尝试、重试、缓存命中），以 `usage` 呈现在 `metadata.json`（v1.5.1）
+- **cloud/entitlements.py** —— 套餐与权益（时长/分辨率/水印/GPU/TTL）；在 API 提交 + worker 注入两点执行（v1.3.1）
+- **cloud/webhooks.py** —— HMAC 签名任务事件，带重试与 JSONL 投递日志；重发 API（v1.3.1，运维接口在 v1.4.0）
+- **cloud/dashboard.py** —— 版本化的 `GET /api/v1/dashboard/summary` 聚合，面向 `movie-narrator-web`（v1.3.1）
+- **cloud/ratelimit.py** —— 提交路由的按租户令牌桶限流；可选 `MN_RATE_LIMIT_*`（v1.5.1）
+- **presets/community.py** —— 数据驱动社区预设：白名单校验的 YAML，绝不执行代码；注册表位于 `~/.movie-narrator/presets/`（v1.5.1）
 - **tts / vision / providers** —— 可插拔子系统，基于注册表分派（`@register_tts`、`@register_vision` 等）
 - **cloud**（`cloud/`）—— 异步任务队列、REST API 服务、远程推理代理（v0.6.x）
 - **contract**（`contract.py`）—— 外部消费者的唯一导入面；固定 `CONTRACT_VERSION`

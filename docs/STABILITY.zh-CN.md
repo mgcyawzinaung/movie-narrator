@@ -73,7 +73,7 @@ SHA-256 校验和）使我们能够对一次运行*交付了什么*作出窄范�
 `movie-narrator` 遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 `pyproject.toml` 中的包版本与 `contract.py` 中的 `CONTRACT_VERSION`
 元组始终在同一版本发布中一起升级。包版本与 `CONTRACT_VERSION` 的完整
-MAJOR/MINOR/PATCH 语义见 [PACKAGING.zh-CN.md](PACKAGING.zh-CN.md#版本化)；
+MAJOR/MINOR/PATCH 语义见 [PACKAGING.zh-CN.md](PACKAGING.zh-CN.md#版本管理-versioning)；
 本节仅复述与稳定性相关的保证。
 
 ### 版本兼容性规则

@@ -42,6 +42,16 @@
 - **pipeline** (`pipeline/runner.py`) — 16-step sequential orchestrator; owns `STEPS`, `build_context`, `run_pipeline`
 - **pipeline/dag.py** — linear-compatible DAG contract: step I/O + dependency declarations, advisory validation and topological order; the runner stays linear (v1.3.0)
 - **pipeline/deliverable.py** — versioned deliverable manifest (`deliverable_manifest.json`) with streamed SHA-256 checksums (v1.3.0)
+- **tracing** (`tracing.py`) — opt-in OpenTelemetry span factories (`task → step/provider/subprocess`); no-op unless `MN_TRACING` is set and the `[otel]` extra is installed; pre-registered foreign exporters are used unchanged (v1.4.0)
+- **utils/resources.py** — render admission preflight: temp-space estimate (frame area × duration × bit depth); opt-in `MN_ADMISSION_DISK_CHECK` (v1.3.2)
+- **utils/prompt_cache.py** — opt-in cache for raw LLM responses (research/beats/expand) keyed by normalized inputs; TTL + LRU (v1.3.2)
+- **utils/media_cache.py** — content-addressed media cache with licence metadata for `reference_media` URL items (v1.5.2)
+- **utils/cost_ledger.py** — per-run provider usage counters (attempts, retries, cache hits) surfaced as `usage` in `metadata.json` (v1.5.1)
+- **cloud/entitlements.py** — plans & entitlements (duration/resolution/watermark/GPU/TTL); enforced at API submission + worker injection (v1.3.1)
+- **cloud/webhooks.py** — HMAC-signed task events with retry and a JSONL delivery log; redelivery API (v1.3.1, ops in v1.4.0)
+- **cloud/dashboard.py** — versioned `GET /api/v1/dashboard/summary` aggregation for `movie-narrator-web` (v1.3.1)
+- **cloud/ratelimit.py** — per-tenant token-bucket throttling for submission routes; opt-in `MN_RATE_LIMIT_*` (v1.5.1)
+- **presets/community.py** — data-driven community presets: whitelist-validated YAML, never code; registry under `~/.movie-narrator/presets/` (v1.5.1)
 - **tts / vision / providers** — pluggable subsystems with registry-based dispatch (`@register_tts`, `@register_vision`, etc.)
 - **cloud** (`cloud/`) — async task queue, REST API server, remote inference proxy (v0.6.x)
 - **contract** (`contract.py`) — single import surface for external consumers; pins `CONTRACT_VERSION`

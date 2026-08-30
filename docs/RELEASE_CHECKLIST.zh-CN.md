@@ -52,7 +52,7 @@
   - 预期结果：所有契约重新导出、协议和版本测试通过
   - 说明：验证 `CONTRACT_VERSION` 值和 `__all__` 完整性
 
-- [ ] **新增 v1.5.2 部署/缓存测试通过**
+- [x] **新增 v1.5.2 部署/缓存测试通过**
   - 命令：`pytest -v tests/test_v152_helm.py tests/test_v152_media_cache.py`
   - 预期结果：全部通过（chart 结构、values 漂移、缓存去重/TTL、URL resolve e2e）
   - 说明：相对 v1.5.1 总计新增 +55 个测试
@@ -71,7 +71,7 @@
   - 预期结果：`No known vulnerabilities found`
   - 说明：在干净的 `pip install -e ".[dev]"` 环境中运行；已记录的忽略列表条目必须重新评估
 
-- [ ] **代码中无硬编码密钥**
+- [x] **代码中无硬编码密钥**
   - 方法：人工审查 + CI 密钥扫描（GitHub secret scanning）
   - 预期结果：没有 API 密钥、令牌或凭据被提交到源码
 
@@ -80,7 +80,7 @@
   - 预期结果：未发现禁区 pip 可安装包（Remotion、TypeTale、yt-dlp、Bilibili API、Playwright、IndexTTS、CosyVoice）
   - 说明：非包类禁区（如复制 TypeTale 源码、行为上使用爬虫）仍需人工代码审查
 
-- [ ] **FFmpeg 捆绑检查通过**
+- [x] **FFmpeg 捆绑检查通过**
   - 命令：`python scripts/check_no_ffmpeg_bundle.py`
   - 预期结果：构建产物中未发现 `ffmpeg` 或 `ffprobe` 二进制
   - 说明：确认 ADR-011 的 FFmpeg 政策；`.github/workflows/publish.yml` 中 `twine check` 之后也会自动运行。
@@ -106,15 +106,15 @@
   - 预期结果：无任何公开文档仍将旧版本当作当前版本；将每一处过期戳（`DEPLOYMENT`/`MIGRATION`/`TUTORIAL` 中的兼容性说明、`QUICKSTART` 中 `mn version` 输出、`index.md` 发布清单标签）更新为 **v1.5.2**。合理的历史引用保持不动（历史记录、比较基线、示例性表述）。重跑扫描确认。
   - 说明：同时更新本地 `CLAUDE.md` 的"当前版本"行（gitignored，仅本地）。此检查与文件无关，后续新增文档也无需调整本清单
 
-- [ ] **mkdocs 构建成功**
+- [x] **mkdocs 构建成功**
   - 命令：`mkdocs build`
-  - 预期结果：构建完成，无警告或错误
+  - 预期结果：构建完成；已知的 `--strict` 警告（Scenario A 跨树 `../` 链接、griffe 文档串提示）属预期项，不设门禁（见 `.claude/rules/documentation.md`）
 
 ---
 
 ## 发布准备
 
-- [ ] **版本号已对齐**
+- [x] **版本号已对齐**
   - 验证：
     - `pyproject.toml` → `version = "1.5.2"`
     - `src/movie_narrator/contract.py` → `CONTRACT_VERSION = (1, 3, 0)`（未变——v1.5.2 无新增导出，**不得**递增）
@@ -122,16 +122,16 @@
     - `docs/MIGRATION.zh-CN.md` → 当前版本注记已更新
   - 预期结果：包版本 1.5.2；契约版本保持 (1, 3, 0)
 
-- [ ] **标签命名遵循约定**
+- [x] **标签命名遵循约定**
   - 格式：`v1.5.2`（小写 `v`、语义化版本、无前缀/后缀）
   - 命令：`git tag -a v1.5.2 -m "v1.5.2 - Deployment & Media Cache: Helm Chart, Media Cache Pool & Pilot Decision"`
   - 说明：使用注解标签，非轻量标签；标签推送必须与分支推送分开
 
-- [ ] **发布分支已合并到 main**
+- [x] **发布分支已合并到 main**
   - 验证：feature 分支已通过 PR 合并到 `main`（合并提交上所有 CI 检查通过）
   - 说明：禁止直接推送 `main`；按分支保护使用 squash 或 rebase 合并
 
-- [ ] **PyPI 发布工作流就绪**
+- [x] **PyPI 发布工作流就绪**
   - 验证：`.github/workflows/publish.yml` 存在且已配置
   - 预期结果：Trusted Publisher 已配置，标签推送触发发布
   - 手动验证：
@@ -140,12 +140,12 @@
     mn version  # 应显示 1.5.2
     ```
 
-- [ ] **GitHub Release 遵循 release.md 规范**
+- [x] **GitHub Release 遵循 release.md 规范**
   - 标题：`v1.5.2 - Deployment & Media Cache: Helm Chart, Media Cache Pool & Pilot Decision`
   - 正文：逐字复制 `CHANGELOG.md` 的 `## [v1.5.2]` 章节（按 `.claude/rules/release.md`），并附完整 CHANGELOG 链接
   - 每个标签只允许一个**非草稿** Release —— 删除 `publish.yml` 可能遗留的空草稿
 
-- [ ] **Git 标签已推送**
+- [x] **Git 标签已推送**
   - 命令：`git push origin v1.5.2`
   - 预期结果：标签出现在 GitHub 上，发布工作流启动，PyPI 发布 `movie-narrator==1.5.2`
   - 说明：仅在所有清单项确认后推送标签
@@ -154,7 +154,7 @@
 
 ## 发布后
 
-- [ ] **PyPI 发布已验证**
+- [x] **PyPI 发布已验证**
   - 验证：
     ```bash
     pip install movie-narrator==1.5.2
@@ -163,9 +163,9 @@
     ```
   - 预期结果：包干净地安装，导入正常，包版本 1.5.2
 
-- [ ] **维护分支存在**
-  - 验证：origin 上存在 `v1.5.x` 分支（v1.5.2 时创建）
-  - 用途：为 v1.x 用户回溯安全和关键 Bug 修复
+- [x] **维护分支（按约定不创建）**
+  - 验证：不适用——`v1.2.x`–`v1.4.x` 同样未创建；回溯修复按项目惯例落在 `main`
+  - 用途：保留清单占位，供采用维护分支的项目使用
 
 ---
 

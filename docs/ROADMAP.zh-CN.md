@@ -32,7 +32,7 @@
 | v1.5.1 | 社区与治理 — mn presets 预设共享 / 按租户限流 / Provider 用量账本                               |
 | v1.5.2 | 部署与媒体缓存 — Helm chart 与 K8s 模板 / 媒体缓存池(reference_media URL)/ 试点延期决策记录     |
 
-`CONTRACT_VERSION`（当前）：`(1, 3, 0)`（v1.4.0 提升追踪导出；v1.4.1 未变）
+`CONTRACT_VERSION`（当前）：`(1, 3, 0)`（v1.4.0 提升追踪导出；v1.4.1–v1.5.2 未变）
 
 ***
 
@@ -77,12 +77,12 @@
 
 #### v1.4.1 — 输出体验 **（已交付）**
 
-- 字幕交付 `burned | sidecar | muxed` — muxed 内嵌 `mov_text` 软字幕轨并做 ISO-639-2 语言归一；缺 SRT/非 mp4 容器优雅回退 burned 并记录原因。（ADR-015 规划）
+- 字幕交付 `burned | sidecar | muxed` — muxed 内嵌 `mov_text` 软字幕轨并做 ISO-639-2 语言归一；缺 SRT/非 mp4 容器优雅回退 burned 并记录原因。（ADR-015）
 - 输出格式稳定承诺 — `deliverable_manifest.json` schema v1 与默认交付物集合在 1.x 内受兼容保护（STABILITY.md）。
 
 #### v1.4.2 — 生态 **（已交付）**
 
-- Premiere 时间线适配器 — timeline_export 插件新增 FCP7-XML（`xmeml`）导出；`timeline_export_backend=premiere`。（ADR-016 规划）
+- Premiere 时间线适配器 — timeline_export 插件新增 FCP7-XML（`xmeml`）导出；`timeline_export_backend=premiere`。（ADR-016）
 - CLI 工效 — `mn benchmark` 与 `mn rerun --dry-run`。
 
 
@@ -97,12 +97,12 @@
 
 #### v1.5.1 — 社区与治理 **（已交付）**
 
-- 社区预设共享 — `mn presets install/list/show/remove`；仅数据的 YAML，按任务参数白名单校验，绝不执行代码。（ADR-018 规划）
+- 社区预设共享 — `mn presets install/list/show/remove`；仅数据的 YAML，按任务参数白名单校验，绝不执行代码。（ADR-018）
 - 按租户令牌桶限流（可选）与 Provider 用量账本（使延期的幂等键决策可度量）。
 
 #### v1.5.2 — 部署与媒体缓存 **（已交付）**
 
-- Helm chart / K8s 部署模板；媒体缓存池（`reference_media` 支持 URL 与版权元数据）；Temporal/Celery 试点决策以可度量触发条件记录。（ADR-019 规划）
+- Helm chart / K8s 部署模板；媒体缓存池（`reference_media` 支持 URL 与版权元数据）；Temporal/Celery 试点决策以可度量触发条件记录。（ADR-019）
 
 ### 长期 — 架构延展（需求驱动）
 
