@@ -154,6 +154,12 @@ class TestAllCompleteness:
             "DeliverableManifest",
             "ManifestEntry",
             "write_deliverable_manifest",
+            # Service & Product Semantics (v1.3.1)
+            "Plan",
+            "EntitlementError",
+            "WebhookEvent",
+            "WebhookDispatcher",
+            "build_dashboard_summary",
         }
         assert expected.issubset(set(contract.__all__))
 
@@ -237,13 +243,13 @@ class TestContractVersion:
     """CONTRACT_VERSION is the stable API boundary for external consumers."""
 
     def test_contract_version_value(self):
-        """CONTRACT_VERSION is (1, 1, 0) — v1.3.0 workflow-semantics exports (MINOR bump).
+        """CONTRACT_VERSION is (1, 2, 0) — v1.3.1 service-semantics exports (MINOR bump).
 
         v1.0.0 is the first stable release. The API surface declared in
         contract.py is frozen and backward-compatible throughout the v1.x
         series. See docs/STABILITY.md for the full stability promise.
         """
-        assert CONTRACT_VERSION == (1, 1, 0)
+        assert CONTRACT_VERSION == (1, 2, 0)
 
     def test_contract_version_is_tuple(self):
         """CONTRACT_VERSION is a 3-tuple of ints (semver)."""

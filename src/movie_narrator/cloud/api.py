@@ -71,6 +71,16 @@ from .artifact_store import (  # v0.8.3 — artifact storage abstraction
     get_task_artifact_store,
 )
 from .dlq import DeadLetterStore, replay_dead_letter  # v0.9.4 — dead letters
+from .entitlements import (  # v1.3.1 — plans & entitlements
+    DEFAULT as _DEFAULT_PLAN,
+    PLAN_HEADER,
+    EntitlementError,
+    available_plan_names,
+    check_submission,
+    default_plan_name,
+    resolve_plan,
+    submission_resolution,
+)
 from .health import build_health_payload, build_readiness_payload, parse_deep_flag
 from .lifecycle import (  # v0.8.3 — artifact lifecycle / TTL cleanup
     ArtifactLifecyclePolicy,
@@ -133,6 +143,17 @@ class PayloadTooLargeError(Exception):
 #: Environment variable opting ``/metrics`` out of API-key auth.
 _ENV_METRICS_PUBLIC = "MN_METRICS_PUBLIC"
 
+#: v1.3.1: principal reported for API-key-authenticated requests when
+#: ``MN_API_PRINCIPAL`` is unset. Unauthenticated loopback requests keep
+#: the pre-v1.3.1 identity: principal ``"local"``, tenant ``"default"``.
+_ENV_API_PRINCIPAL = "MN_API_PRINCIPAL"
+_DEFAULT_API_PRINCIPAL = "api-key"
+
+#: v1.3.1: optional tenant-scoping header. A non-default tenant sees only
+#: its own tasks' artifacts; ``"default"`` (and unauthenticated loopback)
+#: keeps the single-tenant backward-compatible view of everything.
+TENANT_HEADER = "X-MN-Tenant"
+
 #: Paths that are already templates (no variable segment).
 _STATIC_PATHS = frozenset(
     {
@@ -146,6 +167,7 @@ _STATIC_PATHS = frozenset(
         "/batches",
         "/schedules",
         "/deadletters",
+        "/api/v1/dashboard/summary",
     }
 )
 
@@ -194,6 +216,17 @@ def _metrics_public() -> bool:
         "yes",
         "on",
     }
+
+
+def _api_principal() -> str:
+    """Principal recorded for API-key-authenticated requests (v1.3.1).
+
+    Reads ``MN_API_PRINCIPAL`` from the process environment (the same
+    resolution style as the other operational ``MN_*`` admission and
+    lifecycle variables); falls back to ``"api-key"``.
+    """
+    raw = os.environ.get(_ENV_API_PRINCIPAL, "").strip()
+    return raw or _DEFAULT_API_PRINCIPAL
 
 
 # ── Loopback detection (v1.2) ──────────────────────────────
@@ -577,6 +610,126 @@ class _APIHandler(BaseHTTPRequestHandler):
         self._send_error(HTTPStatus.UNAUTHORIZED, "unauthorized")
         return False
 
+    def _current_identity(self) -> Tuple[str, str]:
+        """Resolve the ``(principal, tenant_id)`` of the caller (v1.3.1).
+
+        Must be called *after* :meth:`_check_auth` has passed:
+
+        - A valid API key → principal from ``MN_API_PRINCIPAL`` (default
+          ``"api-key"``); tenant from the optional ``X-MN-Tenant`` header,
+          else ``"default"``.
+        - Unauthenticated loopback (the v1.2 frictionless path) →
+          principal ``"local"``, tenant ``"default"``.
+        - Unauthenticated non-loopback never reaches here (``_check_auth``
+          already answered 401).
+        """
+        api_key: Optional[str] = getattr(self.server, "api_key", None)
+        if api_key is None:
+            # Loopback anonymous — the v1.2 frictionless path.
+            return ("local", "default")
+        provided = self.headers.get("X-API-Key", "")
+        if not hmac.compare_digest(provided, api_key):
+            # Defensive: _check_auth should have rejected already.
+            return ("local", "default")
+        principal = _api_principal()
+        tenant = (self.headers.get(TENANT_HEADER) or "").strip() or "default"
+        return (principal, tenant)
+
+    def _audit(self, route: str, task_id: str = "", **fields: Any) -> None:
+        """Emit a structured audit record for a state-reading or mutating route (v1.3.1).
+
+        The record carries ``task_id``, ``route``, ``tenant_id`` and
+        ``principal`` as top-level JSON keys when ``MN_LOG_FORMAT=json`` is
+        active, so SIEM/audit pipelines can join submissions, status reads
+        and artifact downloads with the tasks they touched. Auditing is
+        best-effort and must never affect the response.
+        """
+        try:
+            principal, tenant = self._current_identity()
+            logger.info(
+                "audit %s %s",
+                route,
+                task_id or "-",
+                extra={
+                    "event": "audit",
+                    "route": route,
+                    "task_id": task_id,
+                    "tenant_id": tenant,
+                    "principal": principal,
+                    **fields,
+                },
+            )
+        except Exception:  # noqa: BLE001 — telemetry must never break a response
+            logger.debug("Failed to write audit record", exc_info=True)
+
+    def _resolve_plan_name(self) -> Tuple[str, Optional[str]]:
+        """Resolve the plan for this request (v1.3.1, Feature 5).
+
+        - Unauthenticated (loopback) requests always get the unlimited
+          ``"default"`` plan — the frictionless local path is never
+          restricted, even when ``MN_DEFAULT_PLAN`` is set.
+        - An explicit ``X-MN-Plan`` header is validated against the
+          configured plans; an unknown name yields an error message.
+        - Otherwise ``MN_DEFAULT_PLAN`` applies (tolerant: unknown names
+          fall back to ``"default"`` with a warning).
+
+        Returns:
+            ``(plan_name, error_message)`` — ``error_message`` is None when
+            the name is usable.
+        """
+        api_key: Optional[str] = getattr(self.server, "api_key", None)
+        if api_key is None:
+            return (_DEFAULT_PLAN.name, None)
+        header = (self.headers.get(PLAN_HEADER) or "").strip()
+        if header:
+            try:
+                resolve_plan(header)
+            except KeyError:
+                configured = ", ".join(available_plan_names())
+                return (
+                    header,
+                    f"unknown plan {header!r} (configured plans: {configured})",
+                )
+            return (header.lower(), None)
+        return (default_plan_name(), None)
+
+    def _plan_entitlement_rejection(
+        self,
+        plan_name: str,
+        requests: List[TaskRequest],
+    ) -> Optional[Tuple[int, Dict[str, Any]]]:
+        """Validate *requests* against the resolved plan (v1.3.1, Feature 5).
+
+        Runs :func:`check_submission` per request using the request's
+        duration, its would-be render resolution and the v1.2 artifact-size
+        estimate heuristic. The unlimited default plan passes trivially, so
+        submissions are byte-for-byte unaffected when no plan is active.
+
+        Returns:
+            ``(HTTPStatus.FORBIDDEN, body)`` on the first violation, or
+            None when every request is admissible.
+        """
+        plan = resolve_plan(plan_name)
+        for request in requests:
+            try:
+                check_submission(
+                    plan,
+                    duration_s=float(request.duration),
+                    resolution=submission_resolution(request),
+                    estimated_bytes=_estimate_artifact_bytes(request),
+                )
+            except EntitlementError as e:
+                return (
+                    HTTPStatus.FORBIDDEN,
+                    {
+                        "error": "entitlement_denied",
+                        "plan": e.plan,
+                        "limit": e.limit,
+                        "actual": e.actual,
+                    },
+                )
+        return None
+
     # ── Submission admission (v1.2) ────────────────────────
 
     def _admission_rejection(
@@ -711,6 +864,11 @@ class _APIHandler(BaseHTTPRequestHandler):
         if task is None:
             self._send_error(HTTPStatus.NOT_FOUND, f"Task {task_id} not found")
             return
+        rejection = self._artifact_scope_rejection(task)
+        if rejection is not None:
+            status, message = rejection
+            self._send_error(status, message)
+            return
         artifacts = self._list_task_artifacts(task)
         self._send_json({"artifacts": artifacts, "count": len(artifacts)})
 
@@ -720,6 +878,15 @@ class _APIHandler(BaseHTTPRequestHandler):
         if task is None:
             self._send_error(HTTPStatus.NOT_FOUND, f"Task {task_id} not found")
             return
+        rejection = self._artifact_scope_rejection(task)
+        if rejection is not None:
+            status, message = rejection
+            self._send_error(status, message)
+            return
+        # v1.3.1: structured audit record for artifact downloads.
+        # (``artifact`` rather than ``filename`` — LogRecord reserves the
+        # latter and logging raises KeyError on extra-key collisions.)
+        self._audit("artifact_download", task_id, artifact=filename)
         self._serve_task_artifact(task, filename)
 
     @_route_registry.register("GET", r"^/tasks/(?P<task_id>[a-f0-9]+)$")
@@ -728,6 +895,8 @@ class _APIHandler(BaseHTTPRequestHandler):
         if task is None:
             self._send_error(HTTPStatus.NOT_FOUND, f"Task {task_id} not found")
             return
+        # v1.3.1: structured audit record for status reads.
+        self._audit("task_status", task_id)
         self._send_json(task.model_dump(mode="json"))
 
     @_route_registry.register("GET", r"^/batches$")
@@ -795,6 +964,41 @@ class _APIHandler(BaseHTTPRequestHandler):
             return
         self._send_json(record.model_dump(mode="json"))
 
+    @_route_registry.register("GET", r"^/api/v1/dashboard/summary$")
+    def _handle_get_dashboard_summary(self) -> None:
+        """Aggregated, versioned dashboard summary (v1.3.1).
+
+        Auth: same rules as every other read route — loopback binds are
+        open, non-loopback binds require the API key.
+        """
+        from .dashboard import build_dashboard_summary
+
+        summary = build_dashboard_summary(
+            self.queue,
+            self.queue.storage,
+            self._dashboard_artifact_store,
+        )
+        self._send_json(summary)
+
+    @property
+    def _dashboard_artifact_store(self) -> Optional[Any]:
+        """Artifact store for the dashboard (None → zeroed artifacts).
+
+        Prefers the store configured on the server; falls back to the
+        default resolution. Any resolution failure yields None so the
+        summary reports zeros instead of erroring.
+        """
+        configured = getattr(self.server, "_artifact_store", None)
+        if configured is not None:
+            return configured
+        try:
+            from .artifact_store import get_artifact_store
+
+            return get_artifact_store()
+        except Exception:  # noqa: BLE001 — ArtifactStoreError or config errors
+            logger.debug("dashboard: artifact store unavailable", exc_info=True)
+            return None
+
     # ── POST route handlers ─────────────────────────────────
 
     @_route_registry.register("POST", r"^/tasks$")
@@ -825,6 +1029,22 @@ class _APIHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, f"Invalid task request: {e}")
             return
 
+        # v1.3.1: stamp the resolved principal/tenant onto the task and
+        # enforce the request's plan (Feature 4 / Feature 5).
+        principal, tenant = self._current_identity()
+        request.principal = principal
+        request.tenant_id = tenant
+        plan_name, plan_error = self._resolve_plan_name()
+        if plan_error is not None:
+            self._send_error(HTTPStatus.BAD_REQUEST, plan_error)
+            return
+        request.plan = plan_name
+        plan_rejection = self._plan_entitlement_rejection(plan_name, [request])
+        if plan_rejection is not None:
+            status, body = plan_rejection
+            self._send_json(body, status=status)
+            return
+
         rejection = self._admission_rejection([request])
         if rejection is not None:
             status, message = rejection
@@ -832,6 +1052,8 @@ class _APIHandler(BaseHTTPRequestHandler):
             return
 
         task_id = self.queue.submit(request)
+        # v1.3.1: structured audit record for submissions.
+        self._audit("task_submit", task_id)
         self._send_json(
             {"task_id": task_id, "status": "pending"},
             status=HTTPStatus.CREATED,
@@ -854,6 +1076,24 @@ class _APIHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, f"Invalid batch request: {e}")
             return
 
+        # v1.3.1: stamp the resolved principal/tenant onto every member task
+        # and enforce the request's plan (Feature 4 / Feature 5).
+        principal, tenant = self._current_identity()
+        for member in request.requests:
+            member.principal = principal
+            member.tenant_id = tenant
+        plan_name, plan_error = self._resolve_plan_name()
+        if plan_error is not None:
+            self._send_error(HTTPStatus.BAD_REQUEST, plan_error)
+            return
+        for member in request.requests:
+            member.plan = plan_name
+        plan_rejection = self._plan_entitlement_rejection(plan_name, request.requests)
+        if plan_rejection is not None:
+            status, body = plan_rejection
+            self._send_json(body, status=status)
+            return
+
         rejection = self._admission_rejection(request.requests)
         if rejection is not None:
             status, message = rejection
@@ -861,6 +1101,8 @@ class _APIHandler(BaseHTTPRequestHandler):
             return
 
         batch = self.queue.submit_batch(request)
+        # v1.3.1: structured audit record for batch submissions.
+        self._audit("task_submit_batch", batch.batch_id, count=len(batch.task_ids))
         self._send_json(
             {
                 "batch_id": batch.batch_id,
@@ -1017,6 +1259,28 @@ class _APIHandler(BaseHTTPRequestHandler):
         return min(value, _MAX_LIST_LIMIT)
 
     # ── Artifact helpers ────────────────────────────────────
+
+    def _artifact_scope_rejection(self, task: Task) -> Optional[Tuple[int, str]]:
+        """Tenant scoping for artifact listing/download (v1.3.1).
+
+        A non-default tenant sees only its own tasks' artifacts. The
+        ``"default"`` tenant (and unauthenticated loopback callers, who
+        resolve to ``"default"``) keeps the single-tenant backward-compatible
+        view of everything — a labeling/scoping MVP, not row isolation.
+
+        Returns:
+            A ``(status, message)`` rejection pair, or None when the caller
+            may access the task's artifacts.
+        """
+        _, tenant = self._current_identity()
+        if tenant == "default":
+            return None
+        if (task.tenant_id or "default") != tenant:
+            return (
+                HTTPStatus.FORBIDDEN,
+                "task artifacts belong to another tenant",
+            )
+        return None
 
     def _list_task_artifacts(self, task: Task) -> list:
         """List available output files for a task (v0.8.3: via the artifact store)."""
