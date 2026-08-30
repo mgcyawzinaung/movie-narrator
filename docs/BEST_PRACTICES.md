@@ -358,6 +358,7 @@ If you have a GPU and want to decide between `render_encoder: auto` and `render_
 ```bash
 python benchmarks/encoder_benchmark.py                # print a comparison table
 python benchmarks/encoder_benchmark.py --out gpu.json # also write the JSON report
+mn benchmark                                          # same benchmark from the CLI (v1.4.2; also: --duration, --encoders libx264,nvenc)
 ```
 
 How to read the numbers:
@@ -368,3 +369,30 @@ How to read the numbers:
 - **status** — `failed` rows (e.g. NVENC listed by ffmpeg but no usable GPU hardware, VAAPI without a device) are recorded, not fatal: treat that backend as unavailable on your machine.
 
 Rule of thumb: if the GPU encoder's `fps` is at least 2-3x `libx264` at a comparable size, use `render_encoder: auto`; otherwise stay on `cpu`.
+
+---
+
+## Timeline Export (NLE Hand-off)
+
+The AI edit is a first draft. If you want to fine-tune it by hand in an NLE instead of publishing the render as-is, enable the `timeline_export` plugin and pick a backend with the `timeline_export_backend` job parameter — the step runs after `render_video` and writes an edit draft under `output/<movie>/timeline/`.
+
+```bash
+cd examples/plugins/timeline_export
+pip install -e .            # base plugin (Jianying backend, no extra deps)
+pip install -e ".[otio]"    # + OpenTimelineIO backend
+```
+
+| Backend | Output | Import into |
+|---------|--------|-------------|
+| `jianying` (default) | `draft_content.json` draft bundle | Jianying / CapCut (domestic) |
+| `otio` | `<movie>.otio` | DaVinci Resolve, in-house OTIO tooling |
+| `premiere` | `<movie>.xml` | Adobe Premiere Pro — `File > Import…` |
+
+The `premiere` backend writes a Final Cut Pro 7 XML sequence: matched source clips on the video track, subtitle/title/watermark cards as text generators on a second track, and the narration stem (the final mix when BGM ran) on an audio track. It needs no optional dependency.
+
+```yaml
+params:
+  timeline_export_backend: premiere
+```
+
+Then in Premiere: `File > Import…`, pick `output/<movie>/timeline/<movie>.xml`, and the sequence appears in your project panel with clips already cut and placed — reorder, trim, swap shots, adjust the text, and export from there. Values are best-effort interchange data (frame-accurate at the sequence rate read from your render settings); treat the draft as a starting point, not a final conform.
