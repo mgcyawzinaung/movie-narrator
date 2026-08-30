@@ -160,6 +160,12 @@ class TestAllCompleteness:
             "WebhookEvent",
             "WebhookDispatcher",
             "build_dashboard_summary",
+            # Opt-in OpenTelemetry tracing (v1.4.0)
+            "SpanHandle",
+            "start_task_span",
+            "start_step_span",
+            "start_provider_span",
+            "start_subprocess_span",
         }
         assert expected.issubset(set(contract.__all__))
 
@@ -243,13 +249,13 @@ class TestContractVersion:
     """CONTRACT_VERSION is the stable API boundary for external consumers."""
 
     def test_contract_version_value(self):
-        """CONTRACT_VERSION is (1, 2, 0) — v1.3.1 service-semantics exports (MINOR bump).
+        """CONTRACT_VERSION is (1, 3, 0) — v1.4.0 tracing exports (MINOR bump).
 
         v1.0.0 is the first stable release. The API surface declared in
         contract.py is frozen and backward-compatible throughout the v1.x
         series. See docs/STABILITY.md for the full stability promise.
         """
-        assert CONTRACT_VERSION == (1, 2, 0)
+        assert CONTRACT_VERSION == (1, 3, 0)
 
     def test_contract_version_is_tuple(self):
         """CONTRACT_VERSION is a 3-tuple of ints (semver)."""
@@ -409,3 +415,36 @@ class TestV130ContractExports:
         assert contract.DeliverableManifest is _DeliverableManifest
         assert contract.ManifestEntry is _ManifestEntry
         assert contract.write_deliverable_manifest is _write_deliverable_manifest
+
+
+# ── v1.4.0 contract exports (append-only section) ─────────
+
+
+class TestV140ContractExports:
+    """v1.4.0 tracing symbols are importable from the contract module."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "SpanHandle",
+            "start_task_span",
+            "start_step_span",
+            "start_provider_span",
+            "start_subprocess_span",
+        ],
+    )
+    def test_tracing_symbols_identity(self, name):
+        from movie_narrator import tracing as _tracing
+
+        assert hasattr(contract, name), f"{name!r} not exported from contract"
+        assert getattr(contract, name) is getattr(_tracing, name)
+
+    def test_span_handle_is_noop_when_disabled(self, monkeypatch):
+        """Contract-exported span factories yield no-op handles by default."""
+        monkeypatch.delenv("MN_TRACING", raising=False)
+        monkeypatch.delenv("MN_TRACING_EXPORTER", raising=False)
+        with contract.start_task_span("t1", "movie") as span:
+            assert isinstance(span, contract.SpanHandle)
+            span.set_attribute("k", "v")  # must not raise
+            span.record_exception(ValueError("x"))
+            span.set_status("error", "boom")

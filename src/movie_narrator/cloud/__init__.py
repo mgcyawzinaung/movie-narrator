@@ -88,6 +88,7 @@ from .lifecycle import (
     ArtifactSweeper,
     CleanupReport,
     cleanup_artifacts,
+    effective_ttl_seconds,  # v1.4.0 — plan TTL narrowing
 )
 from .checkpoint import CheckpointStore, ResumePlan, TaskCheckpoint
 from .queue import LocalTaskQueue, QueueShutdownError, TaskQueue
@@ -120,11 +121,14 @@ from .entitlements import (  # v1.3.1
     check_submission,
     default_plan_name,
     resolve_plan,
+    task_requires_gpu,  # v1.4.0 — GPU/CPU pool routing
 )
 from .webhooks import (  # v1.3.1
     WebhookDispatcher,
     WebhookEvent,
     event_for_task,
+    load_webhook_event,  # v1.4.0 — redelivery support
+    read_delivery_records,
     sign_payload,
 )
 from .dashboard import build_dashboard_summary  # v1.3.1
@@ -156,6 +160,7 @@ __all__ = [
     "ArtifactSweeper",
     "CleanupReport",
     "cleanup_artifacts",
+    "effective_ttl_seconds",
     # Queue
     "TaskQueue",
     "LocalTaskQueue",
@@ -223,10 +228,13 @@ __all__ = [
     "check_submission",
     "default_plan_name",
     "resolve_plan",
+    "task_requires_gpu",
     # Webhooks (v1.3.1)
     "WebhookDispatcher",
     "WebhookEvent",
     "event_for_task",
+    "load_webhook_event",
+    "read_delivery_records",
     "sign_payload",
     # Dashboard summary (v1.3.1)
     "build_dashboard_summary",

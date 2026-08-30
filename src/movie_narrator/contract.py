@@ -50,7 +50,7 @@ from typing import Callable, Optional, Protocol, runtime_checkable
 #   MAJOR — breaking changes to exported symbols or signatures
 #   MINOR — new exports added (backward compatible)
 #   PATCH — bug fixes, doc changes (no API surface change)
-CONTRACT_VERSION: tuple[int, int, int] = (1, 2, 0)
+CONTRACT_VERSION: tuple[int, int, int] = (1, 3, 0)
 
 
 def check_version(required: tuple[int, int, int]) -> None:
@@ -425,6 +425,12 @@ __all__ = [
     "WebhookEvent",
     "WebhookDispatcher",
     "build_dashboard_summary",
+    # Opt-in OpenTelemetry tracing (v1.4.0)
+    "SpanHandle",
+    "start_task_span",
+    "start_step_span",
+    "start_provider_span",
+    "start_subprocess_span",
 ]
 
 
@@ -585,4 +591,15 @@ from .cloud import (  # noqa: E402
     WebhookDispatcher,
     WebhookEvent,
     build_dashboard_summary,
+)
+
+# ── Opt-in OpenTelemetry tracing (v1.4.0) — new exports, backward
+# compatible. Span handles are no-ops unless ``MN_TRACING`` is enabled
+# and the optional ``[otel]`` extra is installed; see movie_narrator.tracing.
+from .tracing import (  # noqa: E402
+    SpanHandle,
+    start_provider_span,
+    start_step_span,
+    start_subprocess_span,
+    start_task_span,
 )
