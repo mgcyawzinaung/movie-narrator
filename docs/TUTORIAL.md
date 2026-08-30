@@ -5,7 +5,7 @@
 
 A complete from-zero-to-advanced walkthrough of **movie-narrator**, a Python engine that turns a single movie title into a narrated recap video. This tutorial is written for **content creators** — you do not need to be a developer to follow it. If you are a plugin author, please read [QUICKSTART.md](QUICKSTART.md) instead.
 
-> **Compatibility note.** This document describes version **1.5.0** governance. The engine is at **1.5.0** with `CONTRACT_VERSION=(1,3,0)`. Run `mn version` to check your installed build.
+> **Compatibility note.** This document describes version **1.5.1** governance. The engine is at **1.5.1** with `CONTRACT_VERSION=(1,3,0)`. Run `mn version` to check your installed build.
 
 ---
 
@@ -199,6 +199,37 @@ mn create -m "The Godfather" \
   --narrator-perspective "first-person" \
   --focus-character "Michael Corleone"
 ```
+
+### Community presets
+
+Beyond the built-ins, you can install **community presets** — small YAML data files that bundle style parameters. They never contain executable code: on install (and on every load) the file is validated against the same parameter whitelist that governs `job.yaml`, so a preset can only tune known knobs.
+
+Install from a local file or an `https://` URL (`http://` is rejected; 256 KiB size cap; 15 s timeout):
+
+```bash
+mn presets install ./slow-burn.yaml
+mn presets install https://example.com/presets/slow-burn.yaml
+```
+
+Installed files live in `~/.movie-narrator/presets/` with a `registry.json` index recording the source, a sha256 of the installed file, and metadata (author, license).
+
+List, inspect, and remove:
+
+```bash
+mn presets list             # built-ins + installed community presets, marked
+mn presets show slow-burn   # parameters + community provenance
+mn presets remove slow-burn
+```
+
+Apply a community preset exactly like a built-in (also via the `--preset` alias):
+
+```bash
+mn create -m "Knives Out" --preset slow-burn
+```
+
+Resolution rule: **built-ins win** — if an installed community preset shares a name with a built-in, the built-in is used and the community copy stays inert.
+
+**Security model** (ADR-018): a community preset is validated *data*, never code. The `preset:` block is metadata only (`name` required; `description`, `author`, `license`, `min_engine` optional); every other key must be a whitelisted `job.yaml` parameter; installs are hash-recorded and re-validated on every load. Only share presets from sources you trust.
 
 ---
 

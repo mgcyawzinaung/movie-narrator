@@ -5,7 +5,7 @@
 
 这是 **movie-narrator** 从零到进阶的完整上手指南。movie-narrator 是一个 Python 引擎，可将单个电影片名转化为一段带旁白解说的回顾视频。本教程面向**内容创作者**——你无需具备开发经验即可跟随学习。如果你是插件作者，请阅读 [QUICKSTART.zh-CN.md](QUICKSTART.zh-CN.md)。
 
-> **兼容性说明。** 本文档描述的是 **1.5.0** 版本的治理（governance）机制。引擎本身为 **1.5.0** 版本，`CONTRACT_VERSION=(1,3,0)`。运行 `mn version` 可查看你当前安装的构建版本。
+> **兼容性说明。** 本文档描述的是 **1.5.1** 版本的治理（governance）机制。引擎本身为 **1.5.1** 版本，`CONTRACT_VERSION=(1,3,0)`。运行 `mn version` 可查看你当前安装的构建版本。
 
 ---
 
@@ -199,6 +199,37 @@ mn create -m "The Godfather" \
   --narrator-perspective "first-person" \
   --focus-character "Michael Corleone"
 ```
+
+### 社区 presets
+
+除了内置 presets，你还可以安装**社区 presets**——打包样式参数的小型 YAML 数据文件。它们绝不包含可执行代码：安装时（以及每次加载时）文件都会按照与 `job.yaml` 相同的参数白名单进行校验，因此 preset 只能调优已知的参数。
+
+从本地文件或 `https://` URL 安装（拒绝 `http://`；大小上限 256 KiB；超时 15 秒）：
+
+```bash
+mn presets install ./slow-burn.yaml
+mn presets install https://example.com/presets/slow-burn.yaml
+```
+
+安装的文件位于 `~/.movie-narrator/presets/`，并有 `registry.json` 索引记录来源、已安装文件的 sha256 以及元数据（作者、许可证）。
+
+列出、查看和移除：
+
+```bash
+mn presets list             # 内置 + 已安装社区 presets，带标记
+mn presets show slow-burn   # 参数 + 社区来源信息
+mn presets remove slow-burn
+```
+
+社区 preset 的用法与内置完全相同（也可以用 `--preset` 别名）：
+
+```bash
+mn create -m "Knives Out" --preset slow-burn
+```
+
+解析规则：**内置优先**——如果已安装的社区 preset 与内置 preset 同名，则使用内置版本，社区副本保持无效。
+
+**安全模型**（ADR-018）：社区 preset 是经过校验的*数据*，绝不是代码。`preset:` 块仅是元数据（`name` 必填；`description`、`author`、`license`、`min_engine` 可选）；其余每个键都必须是白名单内的 `job.yaml` 参数；安装会记录哈希值，并在每次加载时重新校验。请只从你信任的来源分享 preset。
 
 ---
 

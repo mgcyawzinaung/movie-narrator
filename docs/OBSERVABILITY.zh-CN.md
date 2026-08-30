@@ -243,3 +243,57 @@ groups:
 ```
 
 以上规则**仅为示例**——请根据你的部署调整阈值（集群规模与扩容指引参见 `DEPLOYMENT.md`）。
+
+## 7. 提交限流（v1.5.1，可选开启）
+
+`mn serve` 可以用按租户的令牌桶对**任务提交**（`POST /tasks`、
+`POST /tasks/batch`）进行限流。读取类路由永不限流。功能默认关闭；
+通过进程环境变量进行配置（参见 `.env.example`）：
+
+| 变量 | 默认值 | 含义 |
+|------|--------|------|
+| `MN_RATE_LIMIT_ENABLED` | 关闭 | 开启开关 |
+| `MN_RATE_LIMIT_CAPACITY` | 60 | 每租户突发容量 |
+| `MN_RATE_LIMIT_REFILL_PER_MINUTE` | 60 | 每租户每分钟持续提交配额 |
+
+被限流的提交会返回 **429**，带 `Retry-After` 响应头和 JSON 响应体
+`{"error": "rate_limited", "retry_after_s": ...}`——客户端应遵循
+`Retry-After`。租户按键基于现有的租户解析规则（API-key 调用者的
+`X-MN-Tenant` 请求头）；未认证的 loopback 调用者共享 `"default"`
+桶。
+
+监控：被限流的提交会进入标准请求指标——关注
+`mn_http_requests_total{path="/tasks",code="429"}`（以及
+`/tasks/batch`）或 `mn_errors_total{type="http_429"}`：
+
+```yaml
+- alert: MNSubmissionThrottling
+  expr: increase(mn_errors_total{type="http_429"}[15m]) > 0
+  for: 5m
+  labels: { severity: warning }
+  annotations: { summary: "任务提交正在被限流" }
+```
+
+## 8. 提供方用量台账（v1.5.1）
+
+在 Prometheus 指标（覆盖*服务*层面）之外，引擎还会在提供方边界维护
+一份始终开启的内存**用量台账**，记录一次运行的成本。它刻意保持廉价：
+单锁保护的纯计数器、无 I/O、无需开启任何开关。
+
+| 领域 | 计数器 |
+|------|--------|
+| `llm` | `attempts`、`errors`（含重试结果）、`cache_hits`、`prompt_chars`、`resp_chars`；按 kind 细分（`research`、`script_beats`、`script_expand`、`judge` 等） |
+| `tts` | `synth_calls`、`chars`、`cache_hits`、`retries`；按提供方细分 |
+| `vlm` | `calls`、`cache_hits` |
+
+呈现位置：
+
+- `ctx.metadata["usage"]` —— 在 TTS 步骤结束时拍摄的快照。
+- `metadata.json` —— 同一快照通过现有的元数据导出路径进入
+  `usage` 键。TTS 之后的提供方调用（如翻译阶段的 LLM 用量）不在此
+  快照中；计数器本身覆盖整个运行过程。
+
+动机：让被推迟的 LLM 幂等性决策变得可度量（"仅在重复计费变得可
+度量时才重新评估"）——重复的 LLM/TTS 花费成为 `metadata.json` 中的
+一个数字，而不是传闻。当前 `metadata.json` 是唯一呈现位置；
+execution-manifest 集成留待涉及 runner 的发布中处理。
