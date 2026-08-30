@@ -79,6 +79,14 @@ def _segments_json(texts: list) -> str:
     return json.dumps({"segments": segs}, ensure_ascii=False)
 
 
+def _judge_json() -> str:
+    """Build a valid Phase 3 judge response (all dimensions pass)."""
+    return (
+        '{"hook_strength": 9, "spoiler_level": 1, "plot_accuracy": 9, '
+        '"anti_ai_compliance": 9, "narrative_adherence": 9, "issues": []}'
+    )
+
+
 # ── 1. Two-phase success ────────────────────────────────────
 
 
@@ -478,37 +486,49 @@ def test_generate_script_research_in_phase1(tmp_path):
 # ── 9. Cross-phase retry ────────────────────────────────────
 
 
-def test_generate_script_phase1_ok_phase2_fail_then_retry(tmp_path):
+def test_generate_script_phase1_ok_phase2_fail_then_retry(tmp_path, monkeypatch):
     """Phase 1 succeeds but Phase 2 fails → retry both → success.
 
     This verifies the retry loop wraps both phases together: a Phase 2
     failure triggers a full retry (Phase 1 + Phase 2), not just Phase 2.
+
+    ``is_ci`` is pinned to False so the Phase 3 judge LLM call is
+    deterministic: in CI mode the judge short-circuits without an LLM
+    call and the call count below would be 4 instead of 5.
     """
+    monkeypatch.delenv("CI", raising=False)
     ctx = _make_ctx(tmp_path)
     ctx.metadata["prompt_target_sentences"] = 3
 
     beats_resp = _mock_llm_response(_beats_json(3))
     seg_resp = _mock_llm_response(_segments_json(["s1", "s2", "s3"]))
+    judge_resp = _mock_llm_response(_judge_json())
     # Attempt 1: Phase 1 OK, Phase 2 fails
-    # Attempt 2: Phase 1 OK, Phase 2 OK
+    # Attempt 2: Phase 1 OK, Phase 2 OK, judge OK
     mock_cm = _mock_llm_cm(
         side_effect=[
             beats_resp,  # attempt 1 Phase 1
             ConnectionError("phase2 fail"),  # attempt 1 Phase 2
             beats_resp,  # attempt 2 Phase 1
             seg_resp,  # attempt 2 Phase 2
+            judge_resp,  # attempt 2 Phase 3 judge (v1.1.0)
         ]
     )
 
-    with patch("movie_narrator.pipeline.script.get_settings", return_value=_mock_settings()):
-        with patch("movie_narrator.pipeline.script.get_llm_client", return_value=mock_cm):
-            result = generate_script(ctx)
+    with patch("movie_narrator.pipeline.script.is_ci", return_value=False):
+        with patch(
+            "movie_narrator.pipeline.script.get_settings", return_value=_mock_settings()
+        ):
+            with patch(
+                "movie_narrator.pipeline.script.get_llm_client", return_value=mock_cm
+            ):
+                result = generate_script(ctx)
 
     assert result.metadata["script_source"] == "llm"
     assert len(result.segments) == 3
-    # Verify 4 LLM calls: 2 Phase 1 + 2 Phase 2
+    # Verify 5 LLM calls: 2 Phase 1 + 2 Phase 2 + 1 judge (Phase 3, v1.1.0)
     mock_llm = mock_cm.__enter__.return_value
-    assert mock_llm.client.chat.completions.create.call_count == 4
+    assert mock_llm.client.chat.completions.create.call_count == 5
 
 
 def test_generate_script_phase1_ok_phase2_fail_all_retries(tmp_path, monkeypatch):

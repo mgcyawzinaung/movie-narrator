@@ -145,6 +145,15 @@ class TestAllCompleteness:
             "Step",
             "list_presets",
             "get_preset",
+            # v1.3.0 — Linear-compatible DAG contract
+            "StepSpec",
+            "build_step_graph",
+            "validate_linear_order",
+            "topological_order",
+            # v1.3.0 — Versioned deliverable manifest
+            "DeliverableManifest",
+            "ManifestEntry",
+            "write_deliverable_manifest",
         }
         assert expected.issubset(set(contract.__all__))
 
@@ -228,13 +237,13 @@ class TestContractVersion:
     """CONTRACT_VERSION is the stable API boundary for external consumers."""
 
     def test_contract_version_value(self):
-        """CONTRACT_VERSION is (1, 0, 0) — v1.0 stable release (API freeze).
+        """CONTRACT_VERSION is (1, 1, 0) — v1.3.0 workflow-semantics exports (MINOR bump).
 
         v1.0.0 is the first stable release. The API surface declared in
         contract.py is frozen and backward-compatible throughout the v1.x
         series. See docs/STABILITY.md for the full stability promise.
         """
-        assert CONTRACT_VERSION == (1, 0, 0)
+        assert CONTRACT_VERSION == (1, 1, 0)
 
     def test_contract_version_is_tuple(self):
         """CONTRACT_VERSION is a 3-tuple of ints (semver)."""
@@ -362,3 +371,35 @@ class TestSDKSymbolExports:
     def test_get_preset_callable(self):
         """get_preset is callable from contract."""
         assert callable(contract.get_preset)
+
+
+# ── v1.3.0 contract exports (append-only section) ─────────
+
+
+class TestV130ContractExports:
+    """v1.3.0 symbols are importable from the contract module."""
+
+    def test_dag_symbols_identity(self):
+        from movie_narrator.pipeline.dag import (
+            build_step_graph as _build_step_graph,
+            topological_order as _topological_order,
+            validate_linear_order as _validate_linear_order,
+        )
+        from movie_narrator.pipeline.registry import StepRegistry as _StepRegistry
+
+        assert contract.build_step_graph is _build_step_graph
+        assert contract.validate_linear_order is _validate_linear_order
+        assert contract.topological_order is _topological_order
+        assert contract.StepSpec.__name__ == "StepSpec"
+        assert contract.StepRegistry is _StepRegistry
+
+    def test_deliverable_symbols_identity(self):
+        from movie_narrator.pipeline.deliverable import (
+            DeliverableManifest as _DeliverableManifest,
+            ManifestEntry as _ManifestEntry,
+            write_deliverable_manifest as _write_deliverable_manifest,
+        )
+
+        assert contract.DeliverableManifest is _DeliverableManifest
+        assert contract.ManifestEntry is _ManifestEntry
+        assert contract.write_deliverable_manifest is _write_deliverable_manifest

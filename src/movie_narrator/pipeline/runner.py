@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
 from .. import __version__
-from ..models import Assets, Context, MetadataDict, Services, StepResult, StepState
+from ..models import Assets, Context, MetadataDict, PipelineStatus, Services, StepResult, StepState
 from ..utils.console import build_console
 from ..utils.environment import collect_environment
 from .align import align_audio
@@ -116,14 +116,108 @@ _BUILTIN_STEP_META = {
     ),
 }
 
+# ── Built-in step I/O contract (v1.3.0 linear-compatible DAG) ──
+# Coarse declarations consumed by pipeline/dag.py. Names are Context
+# attributes or ``ctx.metadata`` keys each step reads/writes (convention
+# documented in dag.py). ``depends_on`` lists the upstream steps whose
+# outputs the step reads — direct data dependencies only, all of which
+# point backwards in the linear order (that is what keeps the graph
+# linear-compatible). Advisory: the runner does not enforce them.
+_BUILTIN_STEP_IO: Dict[str, Dict[str, tuple[str, ...]]] = {
+    "resolve_video": {
+        "inputs": (),
+        "outputs": ("source_video_path",),
+        "depends_on": (),
+    },
+    "prepare_assets": {
+        "inputs": ("assets",),
+        "outputs": ("assets",),
+        "depends_on": (),
+    },
+    "research_plot": {
+        "inputs": ("movie_name",),
+        "outputs": ("research", "movie_card"),
+        "depends_on": (),
+    },
+    "generate_script": {
+        "inputs": ("research", "movie_card"),
+        "outputs": ("segments", "script_source", "beats_meta", "script_qa"),
+        "depends_on": ("research_plot",),
+    },
+    "export_script_md": {
+        "inputs": ("segments",),
+        "outputs": ("script_md_path",),
+        "depends_on": ("generate_script",),
+    },
+    "generate_voice": {
+        "inputs": ("segments",),
+        "outputs": ("audio_path", "timed_segments", "duration_metrics"),
+        "depends_on": ("generate_script",),
+    },
+    "align_audio": {
+        "inputs": ("audio_path", "timed_segments"),
+        "outputs": ("timed_segments", "alignment_qa"),
+        "depends_on": ("generate_voice",),
+    },
+    "detect_scenes": {
+        "inputs": ("source_video_path",),
+        "outputs": ("scenes",),
+        "depends_on": ("resolve_video",),
+    },
+    "match_clips": {
+        "inputs": ("timed_segments", "scenes", "source_video_path"),
+        "outputs": ("matched_clips", "match_summary"),
+        "depends_on": ("align_audio", "detect_scenes"),
+    },
+    "mix_bgm": {
+        "inputs": ("audio_path", "assets"),
+        "outputs": ("final_audio_path", "bgm_transitions"),
+        "depends_on": ("generate_voice", "prepare_assets"),
+    },
+    "translate_subtitles": {
+        "inputs": ("timed_segments", "subtitle_lang"),
+        "outputs": ("translated_texts",),
+        "depends_on": ("align_audio",),
+    },
+    "generate_subtitle": {
+        "inputs": ("timed_segments", "translated_texts"),
+        "outputs": ("subtitle_path", "subtitle_paths", "render_subtitle_path"),
+        "depends_on": ("align_audio", "translate_subtitles"),
+    },
+    "run_qa_gate": {
+        "inputs": ("script_qa", "audio_quality", "subtitle_qa", "alignment_qa"),
+        "outputs": ("qa_gate",),
+        "depends_on": ("generate_script", "generate_voice", "align_audio", "generate_subtitle"),
+    },
+    "render_video": {
+        "inputs": ("matched_clips", "timed_segments", "final_audio_path", "render_subtitle_path"),
+        "outputs": ("video_path",),
+        "depends_on": ("match_clips", "mix_bgm", "generate_subtitle"),
+    },
+    "validate_deliverable": {
+        "inputs": ("video_path",),
+        "outputs": ("qa_report", "video_qa", "quality_dashboard"),
+        "depends_on": ("render_video",),
+    },
+    "export_clips": {
+        "inputs": ("scenes", "matched_clips", "source_video_path"),
+        "outputs": ("clips_dir",),
+        "depends_on": ("detect_scenes", "match_clips"),
+    },
+}
+
 for _name, (_func, _soft, _field, _consequence) in _BUILTIN_STEP_META.items():
     if not step_registry.contains(_name):
+        _io = _BUILTIN_STEP_IO.get(_name, {})
         step_registry.register(
             _name,
             _func,
             soft=_soft,
             status_field=_field,
             consequence=_consequence,
+            inputs=_io.get("inputs", ()),
+            outputs=_io.get("outputs", ()),
+            depends_on=_io.get("depends_on", ()),
         )
 
 # ── Derived constants (backward-compatible with existing code) ──
@@ -714,6 +808,109 @@ def _next_step_after(completed_step: str) -> Optional[str]:
     return None
 
 
+def ordered_step_names() -> List[str]:
+    """
+    Returns:
+        All registered step names in execution order (the linear
+        pipeline order, including plugin steps).
+    """
+    return step_registry.ordered_names()
+
+
+# ── Selective rerun (v1.3.0) ───────────────────────────────
+
+
+def _emit_rerun_log(
+    ctx: Context,
+    from_step: str,
+    completed_step: str,
+    invalidated_steps: List[str],
+    timestamp: str,
+) -> None:
+    """Emit one structured record for a rerun decision.
+
+    Follows the ``pipeline_step`` structured-log style introduced in
+    v1.2 (stable message token + machine-readable fields via ``extra=``,
+    serialised by ``JsonFormatter`` when JSON logging is enabled). Emitted
+    at INFO — unlike per-step records, this is a single deliberate action
+    whose audit trace exists nowhere else.
+    """
+    _logger.info(
+        "pipeline_rerun",
+        extra={
+            "event": "rerun",
+            "task_id": ctx.metadata.get("run_id"),
+            "pid": os.getpid(),
+            "from_step": from_step,
+            "state_completed_step": completed_step,
+            "invalidated_steps": list(invalidated_steps),
+            "timestamp": timestamp,
+        },
+    )
+
+
+def prepare_rerun(ctx: Context, completed_step: str, from_step: str) -> List[str]:
+    """Prepare *ctx* for a deliberate re-execution starting at *from_step*.
+
+    Semantics (v1.3.0 ``mn rerun``):
+
+    - Steps strictly before *from_step* are reusable — their state comes
+      from the saved ``Context`` and is left untouched.
+    - *from_step* and every step after it are **invalidated**: the
+      ``ctx.status`` fields of invalided soft steps are reset to their
+      "not yet run" default (see :class:`~movie_narrator.models.PipelineStatus`),
+      so downstream soft steps re-execute cleanly instead of being
+      considered already-run. Hard steps have no status field and simply
+      re-run unconditionally.
+    - The decision is recorded in ``ctx.metadata["rerun"]`` as
+      ``{"from_step", "state_completed_step", "invalidated_steps",
+      "timestamp"}`` and one structured log record is emitted.
+
+    Args:
+        ctx: Context loaded from a saved pipeline state.
+        completed_step: The ``completed_step`` recorded in the saved state.
+        from_step: The step to restart from (must be a registered step).
+
+    Returns:
+        The list of invalidated step names (from_step inclusive, in
+        pipeline order).
+
+    Raises:
+        ValueError: if *from_step* is not a registered step.
+    """
+    ordered = ordered_step_names()
+    if from_step not in ordered:
+        raise ValueError(
+            f"Unknown step '{from_step}'. Valid steps: {', '.join(ordered)}"
+        )
+    idx = ordered.index(from_step)
+    invalidated = ordered[idx:]
+
+    # Soft steps: reset the status field to its "not yet run" default so
+    # downstream steps do not skip on a stale success/failed state. The
+    # defaults live on a fresh PipelineStatus (research → "disabled",
+    # translate → "skipped", ...). Hard steps rerun unconditionally.
+    fresh = PipelineStatus()
+    for name in invalidated:
+        field = STATUS_FIELD_FOR_STEP.get(name)
+        if field:
+            setattr(ctx.status, field, getattr(fresh, field))
+
+    from datetime import datetime, timezone
+
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+    cast(Dict[str, Any], ctx.metadata)["rerun"] = {
+        "from_step": from_step,
+        "state_completed_step": completed_step,
+        "invalidated_steps": list(invalidated),
+        "timestamp": timestamp,
+    }
+    _emit_rerun_log(ctx, from_step, completed_step, invalidated, timestamp)
+    return invalidated
+
+
 def run_pipeline(
     ctx: Context,
     *,
@@ -726,8 +923,10 @@ def run_pipeline(
     passes a ``GradioController`` so the user can request a cooperative
     cancel at step boundaries.
 
-    ``start_step``: when set, skip all steps before this step name.
-    Used by ``mn resume`` to avoid re-running already-completed steps.
+    ``start_step``: when set, skip all steps before this step name and
+    begin execution AT this step. Used by ``mn resume`` (continue after
+    the last completed step) and ``mn rerun`` (deliberate re-execution
+    with downstream invalidation — see :func:`prepare_rerun`).
 
     ``PipelineCancelled`` raises before ``_check_strict``, so ``--strict``
     never trips on cancellation. Cancel is a distinct terminal path —
@@ -965,6 +1164,23 @@ def run_pipeline(
     # per-step timing/attempts/providers and the final video checksum.
     if ctx.video_path:
         _write_execution_manifest(ctx, step_records, total_elapsed)
+
+    # ── Deliverable manifest (v1.3.0) ────────────────────
+    # Checksummed inventory of what the run delivered. Skipped on
+    # dry-run (no media is produced — a manifest of absent artifacts
+    # would be misleading) and on pipeline failure (exceptions above
+    # never reach this point). The metadata re-export and execution
+    # manifest above are gated on ctx.video_path; the deliverable
+    # manifest follows the same gate so runs without a rendered video
+    # keep producing the same file set as before.
+    if ctx.video_path and not ctx.metadata.get("dry_run"):
+        try:
+            from .deliverable import write_deliverable_manifest
+
+            manifest_path = write_deliverable_manifest(ctx)
+            cast(Dict[str, Any], ctx.metadata)["deliverable_manifest"] = str(manifest_path)
+        except Exception as e:  # noqa: BLE001 — manifest is best-effort
+            console.debug(f"deliverable_manifest.json write failed: {e}")
 
     return ctx
 

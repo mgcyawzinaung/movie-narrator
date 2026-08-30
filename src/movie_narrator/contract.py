@@ -50,7 +50,7 @@ from typing import Callable, Optional, Protocol, runtime_checkable
 #   MAJOR — breaking changes to exported symbols or signatures
 #   MINOR — new exports added (backward compatible)
 #   PATCH — bug fixes, doc changes (no API surface change)
-CONTRACT_VERSION: tuple[int, int, int] = (1, 0, 0)
+CONTRACT_VERSION: tuple[int, int, int] = (1, 1, 0)
 
 
 def check_version(required: tuple[int, int, int]) -> None:
@@ -407,6 +407,17 @@ __all__ = [
     "DistributedRenderPlanner",
     "DistributedRenderError",
     "render_task_dispatcher",
+    # Linear-compatible DAG contract (v1.3.0)
+    # The runner still executes linearly; these exports expose the step
+    # I/O + dependency declarations for validation and future scheduling.
+    "StepSpec",
+    "build_step_graph",
+    "validate_linear_order",
+    "topological_order",
+    # Versioned deliverable manifest (v1.3.0)
+    "DeliverableManifest",
+    "ManifestEntry",
+    "write_deliverable_manifest",
 ]
 
 
@@ -531,4 +542,28 @@ from .cloud import (  # noqa: E402
     NodeRegistry,
     render_task_dispatcher,
     replay_dead_letter,
+)
+
+# ── Linear-compatible DAG contract (v1.3.0) ────────────────
+# New exports, backward compatible. The pipeline runner still executes
+# steps linearly (flat for-loop); these symbols expose the coarse step
+# I/O + dependency declarations (StepRegistry inputs/outputs/depends_on)
+# so external consumers can validate linear compatibility and prepare
+# for future parallel scheduling. Nothing parallel runs today.
+from .pipeline.dag import (  # noqa: E402
+    StepSpec,
+    build_step_graph,
+    topological_order,
+    validate_linear_order,
+)
+
+# ── Versioned deliverable manifest (v1.3.0) ────────────────
+# New exports, backward compatible. A checksummed inventory of the
+# artifacts a run delivered (``deliverable_manifest.json``): external
+# consumers can verify completeness without hashing the output
+# directory themselves.
+from .pipeline.deliverable import (  # noqa: E402
+    DeliverableManifest,
+    ManifestEntry,
+    write_deliverable_manifest,
 )
