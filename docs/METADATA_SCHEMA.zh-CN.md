@@ -173,6 +173,21 @@
 
 **拍锚点优先级**：当拍元数据可用时，启发式基线使用 `approx_ratio` 作为主要时间锚点。优先级链：拍锚点 > 加权幕 > 均匀比例映射。
 
+### 参考媒体 (v1.3.2)
+
+输入字段 `params.reference_media`（job.yaml）：`{path, kind, usage, note}` 列表。`kind` 为 `video` | `image`；`usage` 为 `style`（风格）| `pacing`（节奏）| `palette`（视觉氛围）| `structure`（结构）；`note` 携带版权/来源备注。resolve 步骤对每一项硬校验（文件存在、扩展名与 `kind` 匹配 —— video: mp4/mkv/mov/avi/webm/m4v，image: png/jpg/jpeg/webp），并将原始条目替换为规范化字典。未配置参考媒体时该字段缺省。
+
+`ctx.metadata["reference_media"]`（校验后）：
+
+| 字段 | 类型 | 描述 |
+|-------|------|-------------|
+| `path` | str | 校验通过的媒体文件绝对路径 |
+| `kind` | str | `video` 或 `image` |
+| `usage` | str | 该项影响的维度：`style` / `pacing` / `palette` / `structure` |
+| `note` | str | 原样保留的版权/来源备注 |
+
+`ctx.metadata["reference_media_captions"]` — 图片路径 → VLM 描述的映射。仅当参考媒体包含图片且配置了 `vision_captioner` 时写入（每次运行最多 3 张，只描述一次）。描述失败自动软降级：映射保持为空，脚本提示回退为纯文本提示。参考媒体为空时两个键都不存在，脚本提示与 v1.3.2 之前的输出逐字节一致。
+
 ---
 
 ## 音频域 (Audio domain)
@@ -319,3 +334,14 @@
 **核心与可选种类**：`video`、`audio`、`subtitle` 是核心种类——其条目始终出现，产物缺失时为 `present=false` 并使用约定路径（`final.mp4`、`narration.mp3`、`subtitle.srt`），消费者可以依赖清单结构。`script`、`clip`、`metadata`、`execution_manifest` 是可选种类——仅在存在时出现。
 
 **视频条目**：`final.mp4`，预览模式下为 `preview.mp4`（即渲染的 `ctx.video_path`）。**音频条目**：优先为 BGM 混音后的最终音频，否则为原始旁白音频。
+## 提示词缓存 (v1.3.2, 可选开启)
+
+`ctx.metadata["prompt_cache"]` — 逐阶段的缓存记录列表，仅在选择性开启提示词缓存（`MN_PROMPT_CACHE=1`；默认关闭，此时该键不存在）时写入。每个被缓存的原始 LLM 调用（调研、脚本节拍、脚本扩写）各一条记录；评判（judge）调用永不缓存。
+
+| 字段 | 类型 | 描述 |
+|-------|------|-------------|
+| `stage` | str | 逻辑调用标识：`research` / `script_beats` / `script_expand` |
+| `hit` | bool | `true` = 命中缓存（跳过 LLM 调用）；`false` = 实际调用 LLM 并存储响应 |
+| `key_prefix` | str | sha256 缓存键前 12 位（确定性输入元组） |
+
+缓存条目存放于 `~/.movie-narrator/prompts/`，TTL 7 天，LRU 上限 200 条。损坏条目按未命中处理并删除。开启开关见 `.env.example`。

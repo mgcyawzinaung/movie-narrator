@@ -173,6 +173,21 @@ Per-beat metadata from structured LLM output. Absent when two-phase script gener
 
 **Beat anchor priority**: when beat metadata is available, the heuristic baseline uses `approx_ratio` as the primary time anchor. Priority chain: beat anchor > weighted-act timeline > uniform proportional mapping.
 
+### Reference media (v1.3.2)
+
+Input field `params.reference_media` (job.yaml): a list of `{path, kind, usage, note}` items. `kind` is `video` | `image`; `usage` is `style` | `pacing` | `palette` | `structure`; `note` carries license/source attribution. The resolve step hard-validates each entry (file exists, extension matches `kind` — video: mp4/mkv/mov/avi/webm/m4v, image: png/jpg/jpeg/webp) and replaces the raw entries with normalized dicts. Absent when no reference media is configured.
+
+`ctx.metadata["reference_media"]` (after validation):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | str | Absolute path to the validated media file |
+| `kind` | str | `video` or `image` |
+| `usage` | str | What the item influences: `style` / `pacing` / `palette` / `structure` |
+| `note` | str | License / source attribution carried through unchanged |
+
+`ctx.metadata["reference_media_captions"]` — map of image path → VLM caption. Written only when reference media contains image entries and a `vision_captioner` provider is configured (max 3 images per run, captioned once). Captioning failures soft-degrade: the map stays empty and the script prompt falls back to text-only hints. When reference media is empty, neither key exists and the script prompt is byte-identical to the pre-v1.3.2 behavior.
+
 ---
 
 ## Audio domain
@@ -319,3 +334,14 @@ Each entry in `artifacts`:
 **Core vs optional kinds**: `video`, `audio`, and `subtitle` are core kinds — their entries always appear, with `present=false` and the conventional path (`final.mp4`, `narration.mp3`, `subtitle.srt`) when the artifact is missing, so consumers can rely on the manifest shape. `script`, `clip`, `metadata`, and `execution_manifest` are optional kinds — they appear only when present.
 
 **Video entry**: `final.mp4`, or `preview.mp4` in preview mode (the rendered `ctx.video_path`). **Audio entry**: the BGM-mixed final audio when present, otherwise the raw narration audio.
+## Prompt cache (v1.3.2, opt-in)
+
+`ctx.metadata["prompt_cache"]` — list of per-stage cache records, written only when the opt-in prompt cache is enabled (`MN_PROMPT_CACHE=1`; default off, in which case the key does not exist). One entry per cached raw LLM call (research, script beats, script expansion); judge calls are never cached.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stage` | str | Logical call identity: `research` / `script_beats` / `script_expand` |
+| `hit` | bool | `true` = served from cache (LLM call skipped); `false` = fresh LLM call, response stored |
+| `key_prefix` | str | First 12 chars of the sha256 cache key (deterministic input tuple) |
+
+Cache entries live under `~/.movie-narrator/prompts/` with a 7-day TTL and a 200-entry LRU cap. Corrupt entries are treated as misses and deleted. See `.env.example` for the opt-in switch.

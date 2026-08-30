@@ -3,11 +3,12 @@
 
 """Script generation step — generate narration script via LLM."""
 
-from typing import List
+from typing import Any, Dict, List, cast
+from pathlib import Path
 import re
 
 from ..config import get_settings
-from ..models import Context, ScriptSegment
+from ..models import Context, Scene, ScriptSegment
 from ..utils.console import step_timing
 from ..utils.prompts import (
     BEATS_PROMPT,
@@ -25,6 +26,7 @@ from ..utils.prompts import (
 )
 from ..utils.llm import get_llm_client
 from ..utils.json_parser import extract_json
+from ..utils.prompt_cache import note_prompt_cache, get_prompt_cache
 from ..tts.base import is_ci
 from ..workflow.errors import is_network_error
 from time import sleep
@@ -120,6 +122,106 @@ _RHYTHM_ZONES = frozenset({"hook", "rising", "peak", "settle"})
 _EMOTIONS = frozenset({"suspense", "laughter", "intense", "calm", "twist"})
 
 
+# ── Reference media style hints (v1.3.2) ───────────────────
+# User-provided reference media (validated by the resolve step and stored
+# as normalized dicts in ``ctx.metadata["reference_media"]``) steer the
+# narration style. When present, a compact hint block is appended to the
+# Phase 1 research context. Reference images are captioned once via the
+# configured vision provider (soft-degrading on any failure); captions
+# are cached in ``ctx.metadata["reference_media_captions"]``.
+#
+# When reference media is absent the hint builder returns "" and the
+# prompt is byte-identical to the pre-v1.3.2 behaviour.
+
+#: Maximum reference images captioned per run (cost guard).
+_REFERENCE_CAPTION_LIMIT = 3
+
+#: Matches stub/placeholder captions ("scene 0 from 0.0s to 1.0s") so
+#: placeholder labels are never injected as real visual style hints.
+_PLACEHOLDER_CAPTION_RE = re.compile(r"^scene \d+ from .+ to .+$")
+
+
+def _maybe_caption_reference_images(ctx: Context) -> None:
+    """Caption reference images once via the configured vision provider.
+
+    No-op when reference media is absent, no image entries exist, or
+    captions were already produced this run (the "once" guarantee across
+    script retry attempts). Only runs when a ``vision_captioner`` provider
+    is configured (``"none"``/unset → skip). Any provider failure is
+    soft-degraded: captions stay empty, a warning is logged, and the
+    pipeline proceeds with text-only hints — never fatal.
+    """
+    metadata = cast(Dict[str, Any], ctx.metadata)
+    entries = metadata.get("reference_media") or []
+    if not entries or "reference_media_captions" in metadata:
+        return
+    images = [
+        e
+        for e in entries
+        if isinstance(e, dict) and e.get("kind") == "image"
+    ][:_REFERENCE_CAPTION_LIMIT]
+    if not images:
+        return
+
+    metadata["reference_media_captions"] = {}
+    provider = metadata.get("vision_captioner", "none")
+    if not provider or provider == "none":
+        return
+
+    try:
+        from ..vision import get_vision_captioner
+
+        captioner = get_vision_captioner(provider)
+        captions: dict[str, str] = {}
+        for i, entry in enumerate(images):
+            # A still image is presented as a one-frame "scene"; providers
+            # extract frames through ffmpeg, which accepts image inputs.
+            scene = Scene(index=i, start=0.0, end=1.0)
+            out = captioner.caption_scenes([scene], video_path=entry["path"])
+            text = (out[0] if out else "").strip()
+            if text and not _PLACEHOLDER_CAPTION_RE.match(text):
+                captions[entry["path"]] = text
+        metadata["reference_media_captions"] = captions
+    except Exception as exc:  # noqa: BLE001 — style hints must never break the script step
+        ctx.services.console.inline_warn(
+            f"Reference image captioning failed — skipping visual style hints: {exc}"
+        )
+
+
+def _build_reference_media_hints(ctx: Context) -> str:
+    """Build the compact "Reference style hints" prompt block.
+
+    Returns "" (and therefore leaves the prompt byte-identical) when
+    reference media is not configured. Otherwise each entry contributes a
+    ``kind + name + usage [+ note]`` line; captioned images add their
+    visual description.
+    """
+    metadata = cast(Dict[str, Any], ctx.metadata)
+    entries = metadata.get("reference_media") or []
+    if not entries:
+        return ""
+    captions = metadata.get("reference_media_captions") or {}
+    lines: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = Path(str(entry.get("path", ""))).name or "?"
+        line = f"- [{entry.get('kind', 'video')}] {name} — usage: {entry.get('usage', 'style')}"
+        note = str(entry.get("note") or "")
+        if note:
+            line += f" ({note})"
+        caption = captions.get(str(entry.get("path", "")))
+        if caption:
+            line += f" — visual: {caption}"
+        lines.append(line)
+    if not lines:
+        return ""
+    return (
+        "\nReference style hints (from user-provided reference media, "
+        "imitate their craft, do not copy content):\n" + "\n".join(lines) + "\n"
+    )
+
+
 def _generate_plot_beats(ctx: Context, settings, llm, target_count: int) -> List[str]:
     """Phase 1: Extract exactly *target_count* plot beats from the movie.
 
@@ -153,6 +255,10 @@ def _generate_plot_beats(ctx: Context, settings, llm, target_count: int) -> List
         if movie_card.set_pieces and not ctx.metadata.get("set_pieces"):
             ctx.metadata["set_pieces"] = movie_card.set_pieces
 
+    # v1.3.2: append user-provided reference media style hints. Returns ""
+    # when reference media is absent, keeping the prompt byte-identical.
+    research_block += _build_reference_media_hints(ctx)
+
     prompt = BEATS_PROMPT.format(
         movie=ctx.movie_name,
         style=ctx.style,
@@ -168,21 +274,47 @@ def _generate_plot_beats(ctx: Context, settings, llm, target_count: int) -> List
     # ~60 tokens; floor at the configured research_max_tokens.
     scaled_max_tokens = max(settings.research_max_tokens, target_count * 60)
 
-    response = llm.client.chat.completions.create(
-        model=llm.model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=settings.research_temperature,
-        max_tokens=scaled_max_tokens,
+    # v1.3.2: opt-in prompt cache around the raw Phase 1 completion.
+    # ``target_count`` is folded into the key via ``extra`` — without it
+    # a cached beat list for a different segment count could be reused.
+    cache = get_prompt_cache()
+    key = cache.make_key(
+        kind="script_beats",
+        topic=ctx.movie_name,
+        style=ctx.style,
+        language=str(ctx.metadata.get("lang", "")),
+        model=str(llm.model),
+        provider=str(getattr(settings, "llm_provider", "")),
+        extra={"target_count": int(target_count)},
     )
-    # v0.7.0: record LLM token usage for cost tracking
-    if (
-        hasattr(ctx, "cost_tracker")
-        and ctx.cost_tracker is not None
-        and hasattr(response, "usage")
-        and response.usage
-    ):
-        ctx.cost_tracker.record_llm_call("script", llm.model, response.usage.model_dump())
-    raw = response.choices[0].message.content or ""
+    cached = cache.lookup(key)
+    if cached is not None:
+        raw = str(cached.get("response", ""))
+        note_prompt_cache(cache, ctx, "script_beats", True, key)
+    else:
+        response = llm.client.chat.completions.create(
+            model=llm.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=settings.research_temperature,
+            max_tokens=scaled_max_tokens,
+        )
+        # v0.7.0: record LLM token usage for cost tracking
+        if (
+            hasattr(ctx, "cost_tracker")
+            and ctx.cost_tracker is not None
+            and hasattr(response, "usage")
+            and response.usage
+        ):
+            ctx.cost_tracker.record_llm_call("script", llm.model, response.usage.model_dump())
+        raw = response.choices[0].message.content or ""
+        cache.store(
+            key,
+            kind="script_beats",
+            response=raw,
+            model=str(llm.model),
+            provider=str(getattr(settings, "llm_provider", "")),
+        )
+        note_prompt_cache(cache, ctx, "script_beats", False, key)
     data = extract_json(raw)
     beats = data.get("beats", [])
 
@@ -316,21 +448,47 @@ def _expand_beats_to_script(
         judge_feedback=build_judge_feedback_hint(prev_judge_scores),
     )
 
-    response = llm.client.chat.completions.create(
-        model=llm.model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=settings.script_expand_temperature,
-        max_tokens=settings.script_max_tokens,
+    # v1.3.2: opt-in prompt cache around the raw Phase 2 completion.
+    # The phase-1 ``beats`` are folded into the key via ``extra`` so a
+    # cached expansion is only reused for identical actual inputs.
+    cache = get_prompt_cache()
+    key = cache.make_key(
+        kind="script_expand",
+        topic=ctx.movie_name,
+        style=ctx.style,
+        language=str(ctx.metadata.get("lang", "")),
+        model=str(llm.model),
+        provider=str(getattr(settings, "llm_provider", "")),
+        extra={"beats": [str(b) for b in beats]},
     )
-    # v0.7.0: record LLM token usage for cost tracking
-    if (
-        hasattr(ctx, "cost_tracker")
-        and ctx.cost_tracker is not None
-        and hasattr(response, "usage")
-        and response.usage
-    ):
-        ctx.cost_tracker.record_llm_call("script", llm.model, response.usage.model_dump())
-    raw = response.choices[0].message.content or ""
+    cached = cache.lookup(key)
+    if cached is not None:
+        raw = str(cached.get("response", ""))
+        note_prompt_cache(cache, ctx, "script_expand", True, key)
+    else:
+        response = llm.client.chat.completions.create(
+            model=llm.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=settings.script_expand_temperature,
+            max_tokens=settings.script_max_tokens,
+        )
+        # v0.7.0: record LLM token usage for cost tracking
+        if (
+            hasattr(ctx, "cost_tracker")
+            and ctx.cost_tracker is not None
+            and hasattr(response, "usage")
+            and response.usage
+        ):
+            ctx.cost_tracker.record_llm_call("script", llm.model, response.usage.model_dump())
+        raw = response.choices[0].message.content or ""
+        cache.store(
+            key,
+            kind="script_expand",
+            response=raw,
+            model=str(llm.model),
+            provider=str(getattr(settings, "llm_provider", "")),
+        )
+        note_prompt_cache(cache, ctx, "script_expand", False, key)
     data = extract_json(raw)
     raw_segments = data.get("segments", [])
 
@@ -671,6 +829,10 @@ def generate_script(ctx: Context) -> Context:
     # hint can be injected into the next retry's expand prompt, turning
     # blind retries into targeted corrections.
     prev_judge_scores: dict | None = None
+
+    # v1.3.2: caption reference images once (before the retry loop) so
+    # retry attempts reuse the cached captions instead of re-calling VLM.
+    _maybe_caption_reference_images(ctx)
 
     for attempt in range(settings.script_retries):
         try:

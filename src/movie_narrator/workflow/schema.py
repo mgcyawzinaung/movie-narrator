@@ -3,9 +3,36 @@
 
 """Job configuration schema definitions."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class ReferenceMediaItem(BaseModel):
+    """A user-provided reference media entry (v1.3.2).
+
+    Reference media (clips / stills from films the creator wants to
+    imitate) steer the *style* of the generated narration. Each item is
+    validated by the ``resolve_video`` step (existence + extension/kind
+    match) and surfaced to the script prompt as a compact style-hint
+    block.
+
+    Attributes:
+        path: Filesystem path to the media file. Relative paths are
+            resolved against the job.yaml directory at load time.
+        kind: ``"video"`` or ``"image"``.
+        usage: What the item should influence:
+            ``"style"`` (tone/wording), ``"pacing"`` (rhythm/cutting),
+            ``"palette"`` (visual mood), or ``"structure"`` (narrative
+            arc).
+        note: Free-form license / source attribution carried through to
+            metadata so provenance is auditable.
+    """
+
+    path: str
+    kind: Literal["video", "image"] = "video"
+    usage: Literal["style", "pacing", "palette", "structure"] = "style"
+    note: str = ""
 
 
 class JobSteps(BaseModel):
@@ -177,9 +204,33 @@ class JobParams(BaseModel):
     # Name of the character to anchor the narration on (used with
     # "character" perspective).  Ignored for other modes.
     focus_character: Optional[str] = None
+    # v1.3.2: user-provided reference media (clips / stills used as
+    # style guidance). Validated by the resolve step; empty tuple keeps
+    # behaviour byte-identical to jobs without reference media.
+    reference_media: Tuple[ReferenceMediaItem, ...] = ()
+    # v1.3.2: backend used by the out-of-tree timeline_export plugin.
+    # "none" (default) = not requested; "jianying" | "otio" are passed
+    # through to the plugin step via metadata.
+    timeline_export_backend: str = "none"
+
+    @field_validator("timeline_export_backend")
+    @classmethod
+    def _check_timeline_export_backend(cls, v: str) -> str:
+        if v not in VALID_TIMELINE_EXPORT_BACKENDS:
+            raise ValueError(
+                "timeline_export_backend must be one of "
+                f"{sorted(VALID_TIMELINE_EXPORT_BACKENDS)}"
+            )
+        return v
 
 
 VALID_SUBTITLE_MODES = frozenset({"original", "translated", "bilingual"})
+
+# v1.3.2: backends understood by the out-of-tree timeline_export plugin
+# (examples/plugins/timeline_export/). ``"none"`` means "no timeline
+# export requested"; ``"jianying"`` and ``"otio"`` map 1:1 to the
+# plugin's ``_timeline_export_step`` backend dispatch.
+VALID_TIMELINE_EXPORT_BACKENDS = frozenset({"none", "jianying", "otio"})
 
 
 class JobConfig(BaseModel):
