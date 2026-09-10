@@ -1,0 +1,51 @@
+name: Movie Narrator Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    env:
+      MN_LLM_BASE_URL: ${{ secrets.FREELLM_BASE_URL }}
+      MN_LLM_API_KEY: ${{ secrets.FREELLM_API_KEY }}
+      MN_LLM_MODEL: auto
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install Movie Narrator
+        run: pip install -e .
+
+      - name: Generate test video
+        run: |
+          mn create \
+            --movie "The Matrix" \
+            --style "fast dramatic recap" \
+            --duration 30
+
+      - name: Show generated files
+        if: always()
+        run: |
+          echo "Generated files:"
+          find . -type f | tail -100
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: movie-narrator-output
+          path: |
+            output/
+            outputs/
+          if-no-files-found: warn
