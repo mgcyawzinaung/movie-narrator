@@ -36,7 +36,7 @@ def glow(draw,x,y,r,rgba):
 
 def frame(idx):
     t=idx/FPS
-    im=sky.copy().convert("RGBA")
+    im=sky.copy()
     d=ImageDraw.Draw(im,"RGBA")
     # soft distant vertical aurora
     for n in range(7):
